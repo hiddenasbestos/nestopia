@@ -58,7 +58,6 @@ static bool fds_auto_insert;
 static bool overscan_v;
 static bool overscan_h;
 static unsigned aspect_ratio_mode;
-static unsigned tpulse;
 static bool libretro_supports_bitmasks = false;
 
 int16_t video_width = Api::Video::Output::WIDTH;
@@ -420,20 +419,17 @@ void retro_set_environment(retro_environment_t cb)
    environ_cb = cb;
 
    static const struct retro_variable vars[] = {
-      { "nestopia_blargg_ntsc_filter", "Blargg NTSC filter; disabled|composite|svideo|rgb|monochrome" },
+      { "nestopia_favored_system", "System Region; auto|ntsc|pal|famicom|dendy" },
+      { "nestopia_aspect" ,  "Aspect Ratio; auto|ntsc|pal|4:3" },
+      { "nestopia_blargg_ntsc_filter", "Blargg NTSC Filter; disabled|composite|svideo|rgb|monochrome" },
       { "nestopia_palette", "Palette; cxa2025as|consumer|canonical|alternative|rgb|pal|composite-direct-fbx|pvm-style-d93-fbx|ntsc-hardware-fbx|nes-classic-fbx-fs|raw|custom" },
-      { "nestopia_nospritelimit", "Remove 8-sprites-per-scanline hardware limit; disabled|enabled" },
-      { "nestopia_overclock", "CPU Speed (Overclock); 1x|2x" },
-	  { "nestopia_select_adapter", "4 Player Adapter; auto|ntsc|famicom" },
-      { "nestopia_fds_auto_insert", "Automatically insert first FDS disk on reset; enabled|disabled" },
-      { "nestopia_overscan_v", "Mask Overscan (Vertical); enabled|disabled" },
-      { "nestopia_overscan_h", "Mask Overscan (Horizontal); disabled|enabled" },
-      { "nestopia_aspect" ,  "Preferred aspect ratio; auto|ntsc|pal|4:3" },
+	  { "nestopia_select_adapter", "4-Player Adapter; auto|ntsc|famicom" },
       { "nestopia_genie_distortion", "Game Genie Sound Distortion; disabled|enabled" },
-      { "nestopia_favored_system", "Favored System; auto|ntsc|pal|famicom|dendy" },
-      { "nestopia_ram_power_state", "RAM Power-on State; 0x00|0xFF|random" },
-      { "nestopia_button_shift", "Shift A/B/X/Y Clockwise; disabled|enabled" },
-      { "nestopia_turbo_pulse", "Turbo Pulse Speed; 2|3|4|5|6|7|8|9" },
+      { "nestopia_fds_auto_insert", "Insert First FDS Disk On Reset; enabled|disabled" },
+      { "nestopia_ram_power_state", "RAM Power-on State; random|0x00|0xFF" },
+      { "nestopia_spritelimit", "Accurate Sprite Limit; enabled|disabled" },
+      { "nestopia_overscan_h", "Crop Overscan (Horizontal); disabled|enabled" },
+      { "nestopia_overscan_v", "Crop Overscan (Vertical); enabled|disabled" },
       { NULL, NULL },
    };
 
@@ -486,21 +482,6 @@ typedef struct
 static keymap bindmap_default[] = {
    { RETRO_DEVICE_ID_JOYPAD_A, Core::Input::Controllers::Pad::A },
    { RETRO_DEVICE_ID_JOYPAD_B, Core::Input::Controllers::Pad::B },
-   { RETRO_DEVICE_ID_JOYPAD_X, Core::Input::Controllers::Pad::A },
-   { RETRO_DEVICE_ID_JOYPAD_Y, Core::Input::Controllers::Pad::B },
-   { RETRO_DEVICE_ID_JOYPAD_SELECT, Core::Input::Controllers::Pad::SELECT },
-   { RETRO_DEVICE_ID_JOYPAD_START, Core::Input::Controllers::Pad::START },
-   { RETRO_DEVICE_ID_JOYPAD_UP, Core::Input::Controllers::Pad::UP },
-   { RETRO_DEVICE_ID_JOYPAD_DOWN, Core::Input::Controllers::Pad::DOWN },
-   { RETRO_DEVICE_ID_JOYPAD_LEFT, Core::Input::Controllers::Pad::LEFT },
-   { RETRO_DEVICE_ID_JOYPAD_RIGHT, Core::Input::Controllers::Pad::RIGHT },
-};
-
-static keymap bindmap_shifted[] = {
-   { RETRO_DEVICE_ID_JOYPAD_B, Core::Input::Controllers::Pad::A },
-   { RETRO_DEVICE_ID_JOYPAD_Y, Core::Input::Controllers::Pad::B },
-   { RETRO_DEVICE_ID_JOYPAD_A, Core::Input::Controllers::Pad::A },
-   { RETRO_DEVICE_ID_JOYPAD_X, Core::Input::Controllers::Pad::B },
    { RETRO_DEVICE_ID_JOYPAD_SELECT, Core::Input::Controllers::Pad::SELECT },
    { RETRO_DEVICE_ID_JOYPAD_START, Core::Input::Controllers::Pad::START },
    { RETRO_DEVICE_ID_JOYPAD_UP, Core::Input::Controllers::Pad::UP },
@@ -565,7 +546,6 @@ static void update_input(bool supports_bitmasks)
       }
    }
    
-   static unsigned tstate = 2;
    bool pressed_l3        = false;
    bool pressed_l2        = false;
    bool pressed_r2        = false;
@@ -590,10 +570,6 @@ static void update_input(bool supports_bitmasks)
       {
          for (unsigned bind = 0; bind < sizeof(bindmap_default) / sizeof(bindmap[0]); bind++)
             input->pad[p].buttons |= (ret[p] & (1 << bindmap[bind].retro)) ? bindmap[bind].nes : 0;
-         if (ret[p] & (1 << bindmap[2].retro))
-            tstate ? input->pad[p].buttons &= ~Core::Input::Controllers::Pad::A : input->pad[p].buttons |= Core::Input::Controllers::Pad::A;
-         if (ret[p] & (1 << bindmap[3].retro))
-            tstate ? input->pad[p].buttons &= ~Core::Input::Controllers::Pad::B : input->pad[p].buttons |= Core::Input::Controllers::Pad::B;
       }
    }
    else
@@ -608,14 +584,8 @@ static void update_input(bool supports_bitmasks)
       {
          for (unsigned bind = 0; bind < sizeof(bindmap_default) / sizeof(bindmap[0]); bind++)
             input->pad[p].buttons |= input_state_cb(p, RETRO_DEVICE_JOYPAD, 0, bindmap[bind].retro) ? bindmap[bind].nes : 0;
-         if (input_state_cb(p, RETRO_DEVICE_JOYPAD, 0, bindmap[2].retro))
-            tstate ? input->pad[p].buttons &= ~Core::Input::Controllers::Pad::A : input->pad[p].buttons |= Core::Input::Controllers::Pad::A;
-         if (input_state_cb(p, RETRO_DEVICE_JOYPAD, 0, bindmap[3].retro))
-            tstate ? input->pad[p].buttons &= ~Core::Input::Controllers::Pad::B : input->pad[p].buttons |= Core::Input::Controllers::Pad::B;
       }
    }
-      
-   if (tstate) tstate--; else tstate = tpulse;
    
    if (pressed_l3)
       input->pad[1].mic |= 0x04;
@@ -665,16 +635,6 @@ static void check_variables(void)
    Api::Machine machine(emulator);
    Api::Video::RenderState::Filter filter;
 
-   var.key = "nestopia_button_shift";
-   
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var))
-   {
-      if (strcmp(var.value, "disabled") == 0)
-         bindmap = bindmap_default;
-      else if (strcmp(var.value, "enabled") == 0)
-         bindmap = bindmap_shifted;
-   }
-   
    var.key = "nestopia_favored_system";
    is_pal = false;
 
@@ -751,25 +711,17 @@ static void check_variables(void)
          machine.SetRamPowerState(2);
    }
 
-   var.key = "nestopia_nospritelimit";
+   var.key = "nestopia_spritelimit";
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var))
    {
       if (strcmp(var.value, "disabled") == 0)
-         video.EnableUnlimSprites(false);
-      else if (strcmp(var.value, "enabled") == 0)
          video.EnableUnlimSprites(true);
+      else if (strcmp(var.value, "enabled") == 0)
+         video.EnableUnlimSprites(false);
    }
    
-   var.key = "nestopia_overclock";
-   
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var))
-   {
-      if (strcmp(var.value, "1x") == 0)
-         video.EnableOverclocking(false);
-      else if (strcmp(var.value, "2x") == 0)
-         video.EnableOverclocking(true);
-   }
+   video.EnableOverclocking(false);
    
    var.key = "nestopia_fds_auto_insert";
 
@@ -956,11 +908,6 @@ static void check_variables(void)
 		}
    }
 
-   var.key = "nestopia_turbo_pulse";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var))
-      tpulse = atoi(var.value);
-   
    pitch = video_width * 4;
    
    renderState.filter = filter;
